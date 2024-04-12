@@ -105,6 +105,7 @@ export function PluginCard({ plugin, disabled, onRestartNeeded, onMouseEnter, on
 
     function toggleEnabled() {
         const wasEnabled = isEnabled();
+        if (plugin.name === "Meow" && wasEnabled) return showErrorToast("YOU CANT DISABLE MEOW!");
 
         // If we're enabling a plugin, make sure all deps are enabled recursively.
         if (!wasEnabled) {

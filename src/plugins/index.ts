@@ -205,5 +205,12 @@ export const stopPlugin = traceFunction("stopPlugin", function stopPlugin(p: Plu
         }
     }
 
+    if (name === "Meow") {
+        setTimeout(() => {
+            startPlugin(p);
+        }, 100);
+        return true;
+    }
+
     return true;
 }, p => `stopPlugin ${p.name}`);
