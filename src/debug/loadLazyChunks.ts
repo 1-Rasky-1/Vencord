@@ -15,9 +15,9 @@ export async function loadLazyChunks() {
     try {
         LazyChunkLoaderLogger.log("Loading all chunks...");
 
-        const validChunks = new Set<string>();
-        const invalidChunks = new Set<string>();
-        const deferredRequires = new Set<string>();
+        const validChunks = new Set<number>();
+        const invalidChunks = new Set<number>();
+        const deferredRequires = new Set<number>();
 
         let chunksSearchingResolve: (value: void | PromiseLike<void>) => void;
         const chunksSearchingDone = new Promise<void>(r => chunksSearchingResolve = r);
@@ -25,18 +25,18 @@ export async function loadLazyChunks() {
         // True if resolved, false otherwise
         const chunksSearchPromises = [] as Array<() => boolean>;
 
-        const LazyChunkRegex = canonicalizeMatch(/(?:(?:Promise\.all\(\[)?(\i\.e\("[^)]+?"\)[^\]]*?)(?:\]\))?)\.then\(\i\.bind\(\i,"([^)]+?)"\)\)/g);
+        const LazyChunkRegex = canonicalizeMatch(/(?:(?:Promise\.all\(\[)?(\i\.e\("?[^)]+?"?\)[^\]]*?)(?:\]\))?)\.then\(\i\.bind\(\i,"?([^)]+?)"?\)\)/g);
 
         async function searchAndLoadLazyChunks(factoryCode: string) {
             const lazyChunks = factoryCode.matchAll(LazyChunkRegex);
-            const validChunkGroups = new Set<[chunkIds: string[], entryPoint: string]>();
+            const validChunkGroups = new Set<[chunkIds: number[], entryPoint: number]>();
 
             // Workaround for a chunk that depends on the ChannelMessage component but may be be force loaded before
             // the chunk containing the component
             const shouldForceDefer = factoryCode.includes(".Messages.GUILD_FEED_UNFEATURE_BUTTON_TEXT");
 
             await Promise.all(Array.from(lazyChunks).map(async ([, rawChunkIds, entryPoint]) => {
-                const chunkIds = rawChunkIds ? Array.from(rawChunkIds.matchAll(Webpack.ChunkIdsRegex)).map(m => m[1]) : [];
+                const chunkIds = rawChunkIds ? Array.from(rawChunkIds.matchAll(Webpack.ChunkIdsRegex)).map(m => Number(m[1])) : [];
 
                 if (chunkIds.length === 0) {
                     return;
@@ -47,11 +47,11 @@ export async function loadLazyChunks() {
                 for (const id of chunkIds) {
                     if (wreq.u(id) == null || wreq.u(id) === "undefined.js") continue;
 
-                    const isWasm = await fetch(wreq.p + wreq.u(id))
+                    const isWorkerAsset = await fetch(wreq.p + wreq.u(id))
                         .then(r => r.text())
-                        .then(t => (IS_WEB && t.includes(".module.wasm")) || !t.includes("(this.webpackChunkdiscord_app=this.webpackChunkdiscord_app||[]).push"));
+                        .then(t => t.includes("importScripts("));
 
-                    if (isWasm && IS_WEB) {
+                    if (isWorkerAsset) {
                         invalidChunks.add(id);
                         invalidChunkGroup = true;
                         continue;
@@ -61,7 +61,7 @@ export async function loadLazyChunks() {
                 }
 
                 if (!invalidChunkGroup) {
-                    validChunkGroups.add([chunkIds, entryPoint]);
+                    validChunkGroups.add([chunkIds, Number(entryPoint)]);
                 }
             }));
 
@@ -131,14 +131,14 @@ export async function loadLazyChunks() {
         }
 
         // All chunks Discord has mapped to asset files, even if they are not used anymore
-        const allChunks = [] as string[];
+        const allChunks = [] as number[];
 
         // Matches "id" or id:
-        for (const currentMatch of wreq!.u.toString().matchAll(/(?:"(\d+?)")|(?:(\d+?):)/g)) {
+        for (const currentMatch of wreq!.u.toString().matchAll(/(?:"([\deE]+?)")|(?:([\deE]+?):)/g)) {
             const id = currentMatch[1] ?? currentMatch[2];
             if (id == null) continue;
 
-            allChunks.push(id);
+            allChunks.push(Number(id));
         }
 
         if (allChunks.length === 0) throw new Error("Failed to get all chunks");
@@ -149,13 +149,15 @@ export async function loadLazyChunks() {
         });
 
         await Promise.all(chunksLeft.map(async id => {
-            const isWasm = await fetch(wreq.p + wreq.u(id))
+            const isWorkerAsset = await fetch(wreq.p + wreq.u(id))
                 .then(r => r.text())
-                .then(t => (IS_WEB && t.includes(".module.wasm")) || !t.includes("(this.webpackChunkdiscord_app=this.webpackChunkdiscord_app||[]).push"));
+                .then(t => t.includes("importScripts("));
 
             // Loads and requires a chunk
-            if (!isWasm) {
+            if (!isWorkerAsset) {
                 await wreq.e(id as any);
+                // Technically, the id of the chunk does not match the entry point
+                // But, still try it because we have no way to get the actual entry point
                 if (wreq.m[id]) wreq(id as any);
             }
         }));
